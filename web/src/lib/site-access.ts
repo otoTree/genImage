@@ -1,5 +1,6 @@
 export const SITE_PASSWORD_ENV_NAME = "SITE_PASSWORD";
 export const SITE_ACCESS_COOKIE_NAME = "site_access";
+export const SITE_ACCESS_COOKIE_SECURE_ENV_NAME = "SITE_ACCESS_COOKIE_SECURE";
 
 let cachedPassword: string | undefined;
 let cachedTokenPromise: Promise<string | undefined> | null = null;
@@ -20,6 +21,60 @@ export function normalizeNextPath(value: string | null | undefined) {
   }
 
   return value;
+}
+
+function getForwardedHeaderValue(request: Request, headerName: string) {
+  return request.headers
+    .get(headerName)
+    ?.split(",")[0]
+    ?.trim();
+}
+
+export function getRequestOrigin(request: Request) {
+  const url = new URL(request.url);
+  const forwardedProto = getForwardedHeaderValue(request, "x-forwarded-proto");
+  const forwardedHost = getForwardedHeaderValue(request, "x-forwarded-host");
+  const host = forwardedHost ?? getForwardedHeaderValue(request, "host");
+  const protocol =
+    forwardedProto === "http" || forwardedProto === "https"
+      ? forwardedProto
+      : url.protocol.replace(":", "");
+
+  if (!host) {
+    return url.origin;
+  }
+
+  return `${protocol}://${host}`;
+}
+
+export function buildRequestUrl(request: Request, pathname: string) {
+  return new URL(pathname, getRequestOrigin(request));
+}
+
+export function shouldUseSecureSiteAccessCookie(request: Request) {
+  const configuredValue =
+    process.env[SITE_ACCESS_COOKIE_SECURE_ENV_NAME]?.trim().toLowerCase();
+
+  if (configuredValue === "true") {
+    return true;
+  }
+
+  if (configuredValue === "false") {
+    return false;
+  }
+
+  const forwardedProto = getForwardedHeaderValue(request, "x-forwarded-proto")
+    ?.toLowerCase();
+
+  if (forwardedProto === "https") {
+    return true;
+  }
+
+  if (forwardedProto === "http") {
+    return false;
+  }
+
+  return new URL(request.url).protocol === "https:";
 }
 
 async function hashValue(value: string) {

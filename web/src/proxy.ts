@@ -2,13 +2,18 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   SITE_ACCESS_COOKIE_NAME,
+  buildRequestUrl,
   hasValidSiteAccess,
   isSitePasswordEnabled,
   normalizeNextPath,
 } from "./lib/site-access";
 
 function isPublicPath(pathname: string) {
-  return pathname === "/unlock" || pathname === "/api/unlock";
+  return (
+    pathname === "/unlock" ||
+    pathname === "/api/unlock" ||
+    pathname === "/api/health"
+  );
 }
 
 export async function proxy(request: NextRequest) {
@@ -27,7 +32,7 @@ export async function proxy(request: NextRequest) {
         request.nextUrl.searchParams.get("next"),
       );
 
-      return NextResponse.redirect(new URL(nextPath, request.url));
+      return NextResponse.redirect(buildRequestUrl(request, nextPath));
     }
 
     return NextResponse.next();
@@ -49,7 +54,7 @@ export async function proxy(request: NextRequest) {
     );
   }
 
-  const loginUrl = new URL("/unlock", request.url);
+  const loginUrl = buildRequestUrl(request, "/unlock");
   const nextPath = normalizeNextPath(
     `${request.nextUrl.pathname}${request.nextUrl.search}`,
   );

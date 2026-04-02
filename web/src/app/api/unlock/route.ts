@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import {
   SITE_ACCESS_COOKIE_NAME,
+  buildRequestUrl,
   getSiteAccessToken,
   getSitePassword,
   normalizeNextPath,
+  shouldUseSecureSiteAccessCookie,
 } from "@/lib/site-access";
 
 export const runtime = "nodejs";
@@ -22,13 +24,13 @@ export async function POST(request: Request) {
   const sitePassword = getSitePassword();
 
   if (!sitePassword) {
-    return NextResponse.redirect(new URL(nextPath, request.url), {
+    return NextResponse.redirect(buildRequestUrl(request, nextPath), {
       status: 303,
     });
   }
 
   if (submittedPassword !== sitePassword) {
-    const failureUrl = new URL("/unlock", request.url);
+    const failureUrl = buildRequestUrl(request, "/unlock");
 
     failureUrl.searchParams.set("error", "1");
 
@@ -41,7 +43,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const response = NextResponse.redirect(new URL(nextPath, request.url), {
+  const response = NextResponse.redirect(buildRequestUrl(request, nextPath), {
     status: 303,
   });
   const token = await getSiteAccessToken();
@@ -51,7 +53,7 @@ export async function POST(request: Request) {
     value: token ?? "",
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureSiteAccessCookie(request),
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
