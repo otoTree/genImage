@@ -22,7 +22,9 @@ export async function POST(request: Request) {
   const sitePassword = getSitePassword();
 
   if (!sitePassword) {
-    return NextResponse.redirect(new URL(nextPath, request.url));
+    return NextResponse.redirect(new URL(nextPath, request.url), {
+      status: 303,
+    });
   }
 
   if (submittedPassword !== sitePassword) {
@@ -34,10 +36,14 @@ export async function POST(request: Request) {
       failureUrl.searchParams.set("next", nextPath);
     }
 
-    return NextResponse.redirect(failureUrl);
+    return NextResponse.redirect(failureUrl, {
+      status: 303,
+    });
   }
 
-  const response = NextResponse.redirect(new URL(nextPath, request.url));
+  const response = NextResponse.redirect(new URL(nextPath, request.url), {
+    status: 303,
+  });
   const token = await getSiteAccessToken();
 
   response.cookies.set({
