@@ -87,27 +87,53 @@ function getTextSummary(value: string) {
   return `${summary.slice(0, 140)}…`;
 }
 
+function getConfigDisplayState(
+  ready: boolean | undefined,
+  loading: boolean,
+): { label: string; readiness: "true" | "false" | "loading" } {
+  if (loading && ready === undefined) {
+    return {
+      label: "检测中",
+      readiness: "loading",
+    };
+  }
+
+  return {
+    label: ready ? "已配置" : "未配置",
+    readiness: ready ? "true" : "false",
+  };
+}
+
 export default function HistoryPage() {
   const [config, setConfig] = useState<ConfigStatus | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [refreshingIds, setRefreshingIds] = useState<string[]>([]);
   const [previewAsset, setPreviewAsset] = useState<PreviewAsset | null>(null);
   const [message, setMessage] = useState("");
 
   async function loadHistory() {
-    const response = await fetch("/api/history", {
-      cache: "no-store",
-    });
-    const data = (await response.json()) as ApiResponse;
+    setConfigLoading(true);
 
-    if (data.config) {
-      setConfig(data.config);
-    }
+    try {
+      const response = await fetch("/api/history", {
+        cache: "no-store",
+      });
+      const data = (await response.json()) as ApiResponse;
 
-    setJobs(data.jobs ?? []);
+      if (data.config) {
+        setConfig(data.config);
+      }
 
-    if (!data.ok && data.error) {
-      setMessage(data.error);
+      setJobs(data.jobs ?? []);
+
+      if (!data.ok && data.error) {
+        setMessage(data.error);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "读取任务失败");
+    } finally {
+      setConfigLoading(false);
     }
   }
 
@@ -212,6 +238,16 @@ export default function HistoryPage() {
     return refreshingIds.includes(jobId);
   }
 
+  const cloubicConfigState = getConfigDisplayState(
+    config?.cloubic,
+    configLoading,
+  );
+  const postgresConfigState = getConfigDisplayState(
+    config?.postgres,
+    configLoading,
+  );
+  const s3ConfigState = getConfigDisplayState(config?.s3, configLoading);
+
   return (
     <div className={styles.page}>
       <main className={styles.main}>
@@ -226,20 +262,20 @@ export default function HistoryPage() {
           <div className={styles.statusGrid}>
             <div className={styles.statusCard}>
               <span>Cloubic</span>
-              <strong data-ready={config?.cloubic ?? false}>
-                {config?.cloubic ? "已配置" : "未配置"}
+              <strong data-ready={cloubicConfigState.readiness}>
+                {cloubicConfigState.label}
               </strong>
             </div>
             <div className={styles.statusCard}>
               <span>PostgreSQL</span>
-              <strong data-ready={config?.postgres ?? false}>
-                {config?.postgres ? "已配置" : "未配置"}
+              <strong data-ready={postgresConfigState.readiness}>
+                {postgresConfigState.label}
               </strong>
             </div>
             <div className={styles.statusCard}>
               <span>S3</span>
-              <strong data-ready={config?.s3 ?? false}>
-                {config?.s3 ? "已配置" : "未配置"}
+              <strong data-ready={s3ConfigState.readiness}>
+                {s3ConfigState.label}
               </strong>
             </div>
           </div>

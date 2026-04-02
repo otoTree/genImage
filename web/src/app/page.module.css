@@ -79,6 +79,10 @@
   color: #8cffca;
 }
 
+.statusCard strong[data-ready="loading"] {
+  color: rgba(245, 247, 255, 0.7);
+}
+
 .shell {
   display: grid;
   grid-template-columns: minmax(380px, 460px) minmax(0, 1fr);
