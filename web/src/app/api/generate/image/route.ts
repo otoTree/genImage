@@ -8,6 +8,7 @@ import {
 } from "@/lib/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const id = crypto.randomUUID();

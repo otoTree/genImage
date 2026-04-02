@@ -9,6 +9,7 @@ import {
 } from "@/lib/site-access";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const formData = await request.formData();
