@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "../page.module.css";
 
 type GenerationKind = "text" | "image" | "video";
@@ -111,7 +111,7 @@ function getConfigDisplayState(
   };
 }
 
-export default function HistoryPage() {
+function HistoryPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentPage = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
@@ -591,5 +591,27 @@ export default function HistoryPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+export default function HistoryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className={styles.page}>
+          <main className={styles.main}>
+            <section className={styles.historyShell}>
+              <div className={styles.panel}>
+                <div className={styles.emptyState}>
+                  <p>任务记录加载中...</p>
+                </div>
+              </div>
+            </section>
+          </main>
+        </div>
+      }
+    >
+      <HistoryPageContent />
+    </Suspense>
   );
 }
