@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "../page.module.css";
 
@@ -46,6 +47,12 @@ type ApiResponse = {
   config?: ConfigStatus;
   job?: GenerationJob;
   jobs?: GenerationJob[];
+  pagination?: {
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
 };
 
 type PreviewAsset =
@@ -105,20 +112,33 @@ function getConfigDisplayState(
 }
 
 export default function HistoryPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentPage = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
+  const pageSize = 12;
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    page: currentPage,
+    pageSize,
+    totalPages: 0,
+  });
   const [refreshingIds, setRefreshingIds] = useState<string[]>([]);
   const [previewAsset, setPreviewAsset] = useState<PreviewAsset | null>(null);
   const [message, setMessage] = useState("");
 
-  async function loadHistory() {
+  const loadHistory = useCallback(async (targetPage: number) => {
     setConfigLoading(true);
 
     try {
-      const response = await fetch("/api/history", {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/history?page=${targetPage}&pageSize=${pageSize}`,
+        {
+          cache: "no-store",
+        },
+      );
       const data = (await response.json()) as ApiResponse;
 
       if (data.config) {
@@ -126,6 +146,14 @@ export default function HistoryPage() {
       }
 
       setJobs(data.jobs ?? []);
+      setPagination(
+        data.pagination ?? {
+          total: 0,
+          page: targetPage,
+          pageSize,
+          totalPages: 0,
+        },
+      );
 
       if (!data.ok && data.error) {
         setMessage(data.error);
@@ -135,11 +163,18 @@ export default function HistoryPage() {
     } finally {
       setConfigLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void loadHistory();
-  }, []);
+    void loadHistory(currentPage);
+  }, [currentPage, loadHistory]);
+
+  function changePage(nextPage: number) {
+    const normalizedPage = Math.max(1, nextPage);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(normalizedPage));
+    router.replace(`/history?${params.toString()}`);
+  }
 
   const recentVideoJobs = useMemo(
     () => jobs.filter((job) => job.kind === "video"),
@@ -158,7 +193,7 @@ export default function HistoryPage() {
       const existingIndex = current.findIndex((job) => job.id === nextJob.id);
 
       if (existingIndex === -1) {
-        return [nextJob, ...current];
+        return current;
       }
 
       const next = [...current];
@@ -292,13 +327,47 @@ export default function HistoryPage() {
                 <Link className={styles.ghost} href="/">
                   返回工作区
                 </Link>
-                <button className={styles.ghost} onClick={() => void loadHistory()} type="button">
+                <Link className={styles.ghost} href="/prompts">
+                  管理提示词
+                </Link>
+                <button
+                  className={styles.ghost}
+                  onClick={() => void loadHistory(currentPage)}
+                  type="button"
+                >
                   刷新列表
                 </button>
               </div>
             </div>
 
             {message ? <p className={styles.message}>{message}</p> : null}
+
+            <div className={styles.paginationBar}>
+              <span className={styles.helperText}>
+                共 {pagination.total} 条，当前第 {pagination.page} /{" "}
+                {Math.max(1, pagination.totalPages)} 页
+              </span>
+              <div className={styles.headerActions}>
+                <button
+                  className={styles.ghost}
+                  disabled={pagination.page <= 1}
+                  onClick={() => changePage(pagination.page - 1)}
+                  type="button"
+                >
+                  上一页
+                </button>
+                <button
+                  className={styles.ghost}
+                  disabled={
+                    !pagination.totalPages || pagination.page >= pagination.totalPages
+                  }
+                  onClick={() => changePage(pagination.page + 1)}
+                  type="button"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
 
             <div className={styles.jobList}>
               {jobs.length ? (
@@ -447,7 +516,7 @@ export default function HistoryPage() {
                 })
               ) : (
                 <div className={styles.emptyState}>
-                  <p>还没有任务记录，先回到工作区发起一个生成请求。</p>
+                  <p>这一页还没有任务记录，可以切换分页或回到工作区发起生成请求。</p>
                 </div>
               )}
             </div>

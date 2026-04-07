@@ -34,6 +34,27 @@ export type GenerationRecord = {
   updatedAt: string;
 };
 
+export type PromptTemplate = {
+  id: string;
+  kind: GenerationKind;
+  title: string;
+  description: string | null;
+  prompt: string;
+  systemPrompt: string | null;
+  model: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PaginatedJobsResult = {
+  items: GenerationRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
 type CloubicMessageContent =
   | string
   | Array<
@@ -127,6 +148,16 @@ const videoSchema = z.object({
   aspectRatio: z.enum(["1:1", "4:3", "16:9", "9:16"]).default("9:16"),
   sound: z.enum(["on", "off"]).default("off"),
   shotPrompts: z.array(shotPromptSchema).default([]),
+});
+
+const promptTemplateSchema = z.object({
+  kind: z.enum(["text", "image", "video"]),
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(1000).optional().or(z.literal("")),
+  prompt: z.string().trim().min(1),
+  systemPrompt: z.string().trim().max(2000).optional().or(z.literal("")),
+  model: z.string().trim().max(200).optional().or(z.literal("")),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
 let pool: Pool | null = null;
@@ -423,6 +454,24 @@ async function ensureSchema() {
         CREATE INDEX IF NOT EXISTS generation_jobs_created_at_idx
         ON generation_jobs (created_at DESC);
       `);
+      await getPool().query(`
+        CREATE TABLE IF NOT EXISTS prompt_templates (
+          id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT,
+          prompt TEXT NOT NULL,
+          system_prompt TEXT,
+          model TEXT,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await getPool().query(`
+        CREATE INDEX IF NOT EXISTS prompt_templates_kind_created_at_idx
+        ON prompt_templates (kind, created_at DESC);
+      `);
       await backfillStorageUrls();
     })().catch((error) => {
       schemaReady = null;
@@ -606,6 +655,24 @@ function normalizeRecord(row: Record<string, unknown>): GenerationRecord {
   };
 }
 
+function normalizePromptTemplate(row: Record<string, unknown>): PromptTemplate {
+  return {
+    id: String(row.id),
+    kind: row.kind as GenerationKind,
+    title: String(row.title),
+    description: row.description ? String(row.description) : null,
+    prompt: String(row.prompt),
+    systemPrompt: row.system_prompt ? String(row.system_prompt) : null,
+    model: row.model ? String(row.model) : null,
+    metadata:
+      row.metadata && typeof row.metadata === "object"
+        ? (row.metadata as Record<string, unknown>)
+        : {},
+    createdAt: new Date(String(row.created_at)).toISOString(),
+    updatedAt: new Date(String(row.updated_at)).toISOString(),
+  };
+}
+
 export async function listRecentJobs(limit = 12) {
   if (!isPgConfigured()) {
     return [];
@@ -626,6 +693,54 @@ export async function listRecentJobs(limit = 12) {
   return result.rows.map((row) =>
     normalizeRecord(row as unknown as Record<string, unknown>),
   );
+}
+
+export async function listJobsPaginated(input?: {
+  page?: number;
+  pageSize?: number;
+}) {
+  if (!isPgConfigured()) {
+    return {
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: input?.pageSize ?? 12,
+      totalPages: 0,
+    } satisfies PaginatedJobsResult;
+  }
+
+  await ensureSchema();
+
+  const page = Math.max(1, Math.trunc(input?.page ?? 1));
+  const pageSize = Math.min(100, Math.max(1, Math.trunc(input?.pageSize ?? 12)));
+  const offset = (page - 1) * pageSize;
+  const [countResult, rowsResult] = await Promise.all([
+    getPool().query<{ count: string }>(`
+      SELECT COUNT(*)::text AS count
+      FROM generation_jobs
+    `),
+    getPool().query(
+      `
+        SELECT *
+        FROM generation_jobs
+        ORDER BY created_at DESC
+        LIMIT $1
+        OFFSET $2
+      `,
+      [pageSize, offset],
+    ),
+  ]);
+  const total = Number(countResult.rows[0]?.count ?? "0");
+
+  return {
+    items: rowsResult.rows.map((row) =>
+      normalizeRecord(row as unknown as Record<string, unknown>),
+    ),
+    total,
+    page,
+    pageSize,
+    totalPages: total ? Math.ceil(total / pageSize) : 0,
+  } satisfies PaginatedJobsResult;
 }
 
 export async function getJobById(id: string) {
@@ -650,6 +765,166 @@ export async function getJobById(id: string) {
   }
 
   return normalizeRecord(result.rows[0] as unknown as Record<string, unknown>);
+}
+
+export async function listPromptTemplates(kind?: GenerationKind) {
+  if (!isPgConfigured()) {
+    return [];
+  }
+
+  await ensureSchema();
+
+  const result = kind
+    ? await getPool().query(
+        `
+          SELECT *
+          FROM prompt_templates
+          WHERE kind = $1
+          ORDER BY created_at DESC
+        `,
+        [kind],
+      )
+    : await getPool().query(`
+        SELECT *
+        FROM prompt_templates
+        ORDER BY created_at DESC
+      `);
+
+  return result.rows.map((row) =>
+    normalizePromptTemplate(row as unknown as Record<string, unknown>),
+  );
+}
+
+export async function getPromptTemplateById(id: string) {
+  if (!isPgConfigured()) {
+    return null;
+  }
+
+  await ensureSchema();
+
+  const result = await getPool().query(
+    `
+      SELECT *
+      FROM prompt_templates
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [id],
+  );
+
+  if (!result.rows[0]) {
+    return null;
+  }
+
+  return normalizePromptTemplate(
+    result.rows[0] as unknown as Record<string, unknown>,
+  );
+}
+
+export function parsePromptTemplatePayload(input: unknown) {
+  return promptTemplateSchema.parse(input);
+}
+
+export async function insertPromptTemplate(input: unknown) {
+  if (!isPgConfigured()) {
+    throw new Error("未配置 DATABASE_URL，无法保存提示词");
+  }
+
+  await ensureSchema();
+
+  const payload = parsePromptTemplatePayload(input);
+  const result = await getPool().query(
+    `
+      INSERT INTO prompt_templates (
+        id,
+        kind,
+        title,
+        description,
+        prompt,
+        system_prompt,
+        model,
+        metadata
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      RETURNING *
+    `,
+    [
+      crypto.randomUUID(),
+      payload.kind,
+      payload.title,
+      payload.description || null,
+      payload.prompt,
+      payload.systemPrompt || null,
+      payload.model || null,
+      JSON.stringify(payload.metadata),
+    ],
+  );
+
+  return normalizePromptTemplate(
+    result.rows[0] as unknown as Record<string, unknown>,
+  );
+}
+
+export async function updatePromptTemplate(id: string, input: unknown) {
+  if (!isPgConfigured()) {
+    throw new Error("未配置 DATABASE_URL，无法更新提示词");
+  }
+
+  await ensureSchema();
+
+  const current = await getPromptTemplateById(id);
+
+  if (!current) {
+    throw new Error("提示词不存在");
+  }
+
+  const payload = parsePromptTemplatePayload(input);
+  const result = await getPool().query(
+    `
+      UPDATE prompt_templates
+      SET
+        kind = $2,
+        title = $3,
+        description = $4,
+        prompt = $5,
+        system_prompt = $6,
+        model = $7,
+        metadata = $8::jsonb,
+        updated_at = NOW()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      id,
+      payload.kind,
+      payload.title,
+      payload.description || null,
+      payload.prompt,
+      payload.systemPrompt || null,
+      payload.model || null,
+      JSON.stringify(payload.metadata),
+    ],
+  );
+
+  return normalizePromptTemplate(
+    result.rows[0] as unknown as Record<string, unknown>,
+  );
+}
+
+export async function deletePromptTemplate(id: string) {
+  if (!isPgConfigured()) {
+    throw new Error("未配置 DATABASE_URL，无法删除提示词");
+  }
+
+  await ensureSchema();
+
+  await getPool().query(
+    `
+      DELETE FROM prompt_templates
+      WHERE id = $1
+    `,
+    [id],
+  );
 }
 
 export async function insertJob(

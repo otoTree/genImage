@@ -40,12 +40,27 @@ type ConfigStatus = {
   };
 };
 
+type PromptTemplate = {
+  id: string;
+  kind: GenerationKind;
+  title: string;
+  description: string | null;
+  prompt: string;
+  systemPrompt: string | null;
+  model: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ApiResponse = {
   ok: boolean;
   error?: string;
   config?: ConfigStatus;
   job?: GenerationJob;
   jobs?: GenerationJob[];
+  prompt?: PromptTemplate;
+  prompts?: PromptTemplate[];
 };
 
 type UploadItem = {
@@ -184,12 +199,16 @@ function ThumbnailList({
 export default function Home() {
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
   const [activeTab, setActiveTab] = useState<GenerationKind>("image");
   const [loading, setLoading] = useState(false);
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
   const [previewAsset, setPreviewAsset] = useState<PreviewAsset | null>(null);
   const [message, setMessage] = useState<string>("");
   const [currentJob, setCurrentJob] = useState<GenerationJob | null>(null);
+  const [selectedTextPromptId, setSelectedTextPromptId] = useState<string>("");
+  const [selectedImagePromptId, setSelectedImagePromptId] = useState<string>("");
+  const [selectedVideoPromptId, setSelectedVideoPromptId] = useState<string>("");
   const [textForm, setTextForm] = useState({
     model: "gemini-3-pro-preview",
     prompt: "请结合参考图，写一段适合电商主图的卖点文案。",
@@ -240,6 +259,34 @@ export default function Home() {
 
   useEffect(() => {
     void loadConfig();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadPromptTemplates() {
+      try {
+        const response = await fetch("/api/prompts", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = (await response.json()) as ApiResponse;
+
+        if (data.config) {
+          setConfig(data.config);
+        }
+
+        if (response.ok && data.ok) {
+          setPromptTemplates(data.prompts ?? []);
+        }
+      } catch {}
+    }
+
+    void loadPromptTemplates();
+
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -386,6 +433,72 @@ export default function Home() {
     });
   }
 
+  function applyPromptTemplate(templateId: string, kind: GenerationKind) {
+    const template = promptTemplates.find(
+      (item) => item.id === templateId && item.kind === kind,
+    );
+
+    if (!template) {
+      return;
+    }
+
+    if (kind === "text") {
+      setSelectedTextPromptId(template.id);
+      setTextForm((current) => ({
+        ...current,
+        model: template.model ?? current.model,
+        prompt: template.prompt,
+        systemPrompt: template.systemPrompt ?? "",
+      }));
+      return;
+    }
+
+    if (kind === "image") {
+      setSelectedImagePromptId(template.id);
+      setImageForm((current) => ({
+        ...current,
+        model: template.model ?? current.model,
+        prompt: template.prompt,
+      }));
+      return;
+    }
+
+    setSelectedVideoPromptId(template.id);
+    setVideoForm((current) => ({
+      ...current,
+      model: template.model ?? current.model,
+      prompt: template.prompt,
+    }));
+  }
+
+  const textPromptTemplates = useMemo(
+    () => promptTemplates.filter((item) => item.kind === "text"),
+    [promptTemplates],
+  );
+  const imagePromptTemplates = useMemo(
+    () => promptTemplates.filter((item) => item.kind === "image"),
+    [promptTemplates],
+  );
+  const videoPromptTemplates = useMemo(
+    () => promptTemplates.filter((item) => item.kind === "video"),
+    [promptTemplates],
+  );
+  const activePromptTemplate = useMemo(() => {
+    const selectedId =
+      activeTab === "text"
+        ? selectedTextPromptId
+        : activeTab === "image"
+          ? selectedImagePromptId
+          : selectedVideoPromptId;
+
+    return promptTemplates.find((item) => item.id === selectedId) ?? null;
+  }, [
+    activeTab,
+    promptTemplates,
+    selectedImagePromptId,
+    selectedTextPromptId,
+    selectedVideoPromptId,
+  ]);
   const textReferenceImages = splitMultilineUrls(textForm.referenceImages);
   const imageReferenceImages = splitMultilineUrls(imageForm.referenceImages);
   const videoReferenceImages = splitMultilineUrls(videoForm.referenceImages);
@@ -498,6 +611,36 @@ export default function Home() {
 
             {activeTab === "text" ? (
               <form className={styles.form} onSubmit={handleTextSubmit}>
+                <label className={styles.field}>
+                  <span>选择提示词模板</span>
+                  <select
+                    value={selectedTextPromptId}
+                    onChange={(event) => {
+                      const { value } = event.target;
+                      setSelectedTextPromptId(value);
+
+                      if (value) {
+                        applyPromptTemplate(value, "text");
+                      }
+                    }}
+                  >
+                    <option value="">不使用模板</option>
+                    {textPromptTemplates.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selectedTextPromptId ? (
+                  <button
+                    className={styles.ghost}
+                    onClick={() => setSelectedTextPromptId("")}
+                    type="button"
+                  >
+                    清空已选模板
+                  </button>
+                ) : null}
                 <label className={styles.field}>
                   <span>模型</span>
                   <input
@@ -632,6 +775,36 @@ export default function Home() {
             {activeTab === "image" ? (
               <form className={styles.form} onSubmit={handleImageSubmit}>
                 <label className={styles.field}>
+                  <span>选择提示词模板</span>
+                  <select
+                    value={selectedImagePromptId}
+                    onChange={(event) => {
+                      const { value } = event.target;
+                      setSelectedImagePromptId(value);
+
+                      if (value) {
+                        applyPromptTemplate(value, "image");
+                      }
+                    }}
+                  >
+                    <option value="">不使用模板</option>
+                    {imagePromptTemplates.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selectedImagePromptId ? (
+                  <button
+                    className={styles.ghost}
+                    onClick={() => setSelectedImagePromptId("")}
+                    type="button"
+                  >
+                    清空已选模板
+                  </button>
+                ) : null}
+                <label className={styles.field}>
                   <span>模型</span>
                   <input
                     value={imageForm.model}
@@ -722,6 +895,36 @@ export default function Home() {
 
             {activeTab === "video" ? (
               <form className={styles.form} onSubmit={handleVideoSubmit}>
+                <label className={styles.field}>
+                  <span>选择提示词模板</span>
+                  <select
+                    value={selectedVideoPromptId}
+                    onChange={(event) => {
+                      const { value } = event.target;
+                      setSelectedVideoPromptId(value);
+
+                      if (value) {
+                        applyPromptTemplate(value, "video");
+                      }
+                    }}
+                  >
+                    <option value="">不使用模板</option>
+                    {videoPromptTemplates.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {selectedVideoPromptId ? (
+                  <button
+                    className={styles.ghost}
+                    onClick={() => setSelectedVideoPromptId("")}
+                    type="button"
+                  >
+                    清空已选模板
+                  </button>
+                ) : null}
                 <label className={styles.field}>
                   <span>模型</span>
                   <input
@@ -996,6 +1199,9 @@ export default function Home() {
               <Link className={styles.ghost} href="/history">
                 查看任务记录
               </Link>
+              <Link className={styles.ghost} href="/prompts">
+                管理提示词
+              </Link>
             </div>
 
             {message ? <p className={styles.inlineMessage}>{message}</p> : null}
@@ -1008,6 +1214,9 @@ export default function Home() {
               <div className={styles.workspaceMeta}>
                 <span className={styles.metaPill}>{workspaceModel}</span>
                 <span className={styles.metaPill}>素材 {workspaceAssets.length}</span>
+                <span className={styles.metaPill}>
+                  模板 {activePromptTemplate ? activePromptTemplate.title : "未选择"}
+                </span>
               </div>
               <p className={styles.workspacePrompt}>{workspacePrompt}</p>
 

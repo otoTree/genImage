@@ -1,7 +1,7 @@
 import {
   ensureAppInfrastructure,
   getConfigStatus,
-  listRecentJobs,
+  listJobsPaginated,
 } from "@/lib/server";
 
 export const runtime = "nodejs";
@@ -20,12 +20,23 @@ export async function GET(request: Request) {
 
   try {
     await ensureAppInfrastructure();
-    const jobs = await listRecentJobs();
+    const page = Number(searchParams.get("page") ?? "1");
+    const pageSize = Number(searchParams.get("pageSize") ?? "12");
+    const result = await listJobsPaginated({
+      page,
+      pageSize,
+    });
 
     return Response.json({
       ok: true,
       config,
-      jobs,
+      jobs: result.items,
+      pagination: {
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+        totalPages: result.totalPages,
+      },
     });
   } catch (error) {
     return Response.json(
@@ -33,6 +44,12 @@ export async function GET(request: Request) {
         ok: false,
         config,
         jobs: [],
+        pagination: {
+          total: 0,
+          page: 1,
+          pageSize: 12,
+          totalPages: 0,
+        },
         error: error instanceof Error ? error.message : "读取任务失败",
       },
       {

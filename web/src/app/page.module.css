@@ -395,6 +395,14 @@
   line-height: 1.6;
 }
 
+.paginationBar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .jobList {
   display: flex;
   flex-direction: column;
@@ -708,6 +716,28 @@
   color: #dfe5ff;
 }
 
+.previewInfoBox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100%;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.previewInfoBox strong {
+  color: #aab2ff;
+  font-size: 13px;
+}
+
+.previewInfoBox p {
+  color: rgba(245, 247, 255, 0.76);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
 .errorText {
   color: #ff9898;
 }
@@ -779,6 +809,10 @@
 
   .headerActions {
     width: 100%;
+  }
+
+  .paginationBar {
+    align-items: stretch;
   }
 
   .jobCard {
